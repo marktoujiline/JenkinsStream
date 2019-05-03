@@ -3,7 +3,6 @@ package rally.jenkins.util.jenkins
 import akka.http.scaladsl.model.HttpHeader.ParsingResult.{Error, Ok}
 import akka.http.scaladsl.model._
 import rally.jenkins.util.Context
-import rally.jenkins.util.enum.BuildSuccess
 import rally.jenkins.util.model.ModelJsonImplicits._
 import rally.jenkins.util.model.RawBuildInfo
 import spray.json._

@@ -5,9 +5,14 @@ import akka.http.scaladsl.Http
 import script.{ActiveAndSyncSetup, Manifest => Man}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
+import rally.jenkins.util.model.ManifestInfo
 
 import scala.concurrent.Future
 import scala.io.StdIn
+import rally.jenkins.util.model.ModelJsonImplicits._
+import spray.json._
+
+import scala.util.{Failure, Success}
 
 object Main extends App with Context {
 
@@ -15,9 +20,15 @@ object Main extends App with Context {
     path("manifest") {
       post {
         entity(as[String]) { tenant =>
-          val saved: Future[Done] = new Man(tenant).run
-          onComplete(saved) { _ =>
-            complete(StatusCodes.OK)
+          val saved: Future[ManifestInfo] = new Man(tenant).run
+          onComplete(saved) {
+            case Success(manifestInfo) => complete(
+              HttpEntity(
+                ContentTypes.`application/json`,
+                manifestInfo.toJson.toString
+              )
+            )
+            case Failure(ex) => complete(StatusCodes.OK)
           }
         }
       }

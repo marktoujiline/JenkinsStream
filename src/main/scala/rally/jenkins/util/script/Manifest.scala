@@ -1,13 +1,12 @@
 package rally.jenkins.util.script
-import akka.Done
 import akka.http.scaladsl.Http
 import rally.jenkins.util.Context
 import rally.jenkins.util.marathon.{MarathonClient, MarathonClientImpl}
-import rally.jenkins.util.model.MarathonApp
+import rally.jenkins.util.model.{AppInfo, ManifestInfo, MarathonApp}
 
 import scala.concurrent.Future
 
-class Manifest(tenant: String) extends Script with Context {
+class Manifest(tenant: String) extends Context {
 
   private val marathonClient: MarathonClient = new MarathonClientImpl(tenant, Http().singleRequest(_))
 
@@ -26,23 +25,17 @@ class Manifest(tenant: String) extends Script with Context {
     }
   }
 
-  override def run: Future[Done] = for {
-    // check if any apps are missing
+  def run: Future[ManifestInfo] = for {
     properSetup <- marathonClient.properSetup(tenant)
     currentSetup <- marathonClient.getEnv()
-    missingApps: Seq[MarathonApp] = properSetup.filter(properApp => !currentSetup.exists(_.id == properApp.id))
   } yield {
-    println(s"${missingApps.length} apps are missing:")
-    missingApps.foreach(
-      missingApp => {
-        println(
-          s"${appWithoutTenant(missingApp.id)} : ${
-            properSetup.find(app => app.id == missingApp.id).get.env
-              .getOrElse("VERSION", "unknown")
-          }"
-        )
-      }
-    )
+    val missingApps: Seq[MarathonApp] = properSetup.filter(properApp => !currentSetup.exists(_.id == properApp.id))
+
+    val missingAppsList = missingApps.map(a => AppInfo(a.id, "Missing", a.env.getOrElse("VERSION", "unknown")))
+    val lowVersionAppsList = Seq.empty[AppInfo]
+    val badEnvAppsList = Seq.empty[AppInfo]
+    val goodAppsList = properSetup.intersect(missingApps).map(a => AppInfo(a.id, "Good",
+      a.env.getOrElse("VERSION", "unknown")))
 
     properSetup.foreach(
       properApp => {
@@ -56,11 +49,12 @@ class Manifest(tenant: String) extends Script with Context {
                 val currentAppVersion = currentApp.env.getOrElse("VERSION", "0.0.0")
                 val isCorrectVersion = semver(properAppVersion) <= semver(currentAppVersion)
                 if (!isCorrectVersion) {
-                  println(s"app: ${properApp.id} Wrong version: $currentAppValue does not match ${keyValue._2}")
+                  lowVersionAppsList :+ AppInfo(properApp.id, "LowVersion", s"Wrong version: $currentAppValue does not match ${keyValue._2}")
                 }
               }
               else if (currentAppValue != keyValue._2) {
-                println(s"app: ${properApp.id} key ${keyValue._1}: $currentAppValue does not match ${keyValue._2}")
+                badEnvAppsList :+
+                  AppInfo(properApp.id, "BadEnv", s"Bad env: $currentAppValue does not match ${keyValue._2}")
               }
             }
           )
@@ -68,6 +62,11 @@ class Manifest(tenant: String) extends Script with Context {
       }
     )
 
-    Done.done
+    ManifestInfo(
+      goodAppsList,
+      missingAppsList,
+      lowVersionAppsList,
+      badEnvAppsList
+    )
   }
 }
