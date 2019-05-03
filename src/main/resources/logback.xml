@@ -1,0 +1,16 @@
+<configuration scan="false">
+
+    <root level="debug">
+        <appender-ref ref="console"/>
+    </root>
+
+    <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- Exception output is not truncated because mesos doesn't uses std out and there is no log file. -->
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36}: %msg [%mdc]%n%xEx</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="default" level="debug"/>
+    <logger name="rest" level="debug"/>
+</configuration>

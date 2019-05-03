@@ -1,25 +1,20 @@
 package rally.jenkins.util
 
-import akka.actor.ActorSystem
-import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.headers.BasicHttpCredentials
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.unmarshalling.Unmarshal
-import akka.stream.ActorMaterializer
-import rally.jenkins.util.model.{BuildInfo, JobNumber, RawBuildInfo}
+import rally.jenkins.util.model.{BuildInfo, RawBuildInfo}
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import rally.jenkins.util.enum.{BuildAborted, BuildFailure, BuildResult, BuildSuccess, JobName}
-import spray.json.DefaultJsonProtocol._
-import spray.json.RootJsonFormat
+import rally.jenkins.util.model.ModelJsonImplicits._
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, Future}
 
-class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
-  implicit val materializer: ActorMaterializer,
-  executionContext: ExecutionContext,
-  actorSystem: ActorSystem
-) extends JenkinsClient {
+class JenkinsClientImpl(
+  jenkinsConfig: JenkinsConfig,
+  sendAndReceive: HttpRequest => Future[HttpResponse]
+) extends JenkinsClient with Context with RallyLogger {
 
   private val credentials = BasicHttpCredentials(jenkinsConfig.username, jenkinsConfig.token)
 
@@ -51,18 +46,17 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
   }
 
   private def runJob(jobName: String, jobBranch: String, parameters: String): Future[BuildInfo] = {
-    println(s"\nRunning job $jobName with params: $parameters on branch $jobBranch")
+    defaultLogger.debug(s"Running job $jobName with params: $parameters on branch $jobBranch")
     (for {
       queueId <- triggerJob(jobName, jobBranch, parameters, runBuildWithParameters)
-      _ <- Future { println(queueId) }
+      _ <- Future { defaultLogger.debug(s"Found queueId: $queueId") }
       buildInfo <- waitForJobToFinish(jobName, queueId, jobBranch)
-      _ <- Future {
-        println(buildInfo)
-      }
+      _ <- Future {defaultLogger.debug(s"Job Finished: ${buildInfo.toString}")}
     } yield buildInfo)
       .recover {
         case e: Exception =>
-          println(e.getMessage)
+          restLogger.error(e.toString)
+          restLogger.error(e.getStackTrace.map(_.toString).mkString("\n    "))
           BuildInfo(JobName.fromString(jobName), -1, BuildFailure, "")
       }
   }
@@ -79,7 +73,7 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
     ).addCredentials(credentials)
 
     for {
-      response <- Http().singleRequest(request)
+      response <- sendAndReceive(request)
     } yield {
       response.status match {
         case StatusCodes.Created =>
@@ -100,15 +94,14 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
    */
 
   private def waitForJobToFinish(jobName: String, queueLink: String, branch: String): Future[BuildInfo] = {
-    implicit val jobNumberFormat: RootJsonFormat[JobNumber] = jsonFormat1(JobNumber.apply)
     val maxAttempts = 360
-    val timeBetweenAttempts = 10000
+    val timeBetweenAttempts = 1000
     // extract the number queueId from queueId link
     val splitQueueLink = queueLink.split("/")
     val queueId = splitQueueLink(splitQueueLink.length - 1).toInt
 
     var attempts = 0
-    println("\nwaiting for build to start")
+    restLogger.debug("waiting for build to start")
     var rawBuildInfo: Option[RawBuildInfo] = None
     while (attempts < maxAttempts && rawBuildInfo.isEmpty) {
       val last10JobInfos = Await.result(getLastNJobInfos(jobName, 10, branch), 10.seconds)
@@ -121,7 +114,7 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
     }
 
     attempts = 0
-    println("\nwaiting for build to finish")
+    restLogger.debug("waiting for build to finish")
     var buildInfo: Option[BuildInfo] = None
     while (attempts < maxAttempts && buildInfo.isEmpty) {
       rawBuildInfo match {
@@ -159,10 +152,8 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
       uri = url
     ).addCredentials(credentials)
 
-    implicit val jobInfo: RootJsonFormat[RawBuildInfo] = jsonFormat6(RawBuildInfo)
-
     for {
-      response <- Http().singleRequest(request)
+      response <- sendAndReceive(request)
       jobInfo <- Unmarshal(response.entity).to[RawBuildInfo]
     } yield jobInfo match {
       case RawBuildInfo(description, _, _, buildId, _, result) => BuildInfo(JobName.fromString(jobName), buildId, BuildResult.toBuildResult(result.getOrElse("")), description.getOrElse(""))
@@ -183,10 +174,9 @@ class JenkinsClientImpl(jenkinsConfig: JenkinsConfig)(
       method = HttpMethods.GET,
       uri = url
     ).addCredentials(credentials)
-    implicit val rawJobInfo: RootJsonFormat[RawBuildInfo] = jsonFormat6(RawBuildInfo)
 
     for {
-      response <- Http().singleRequest(request)
+      response <- sendAndReceive(request)
       jobInfo <- Unmarshal(response.entity).to[RawBuildInfo]
     } yield jobInfo
   }

@@ -1,11 +1,18 @@
 package rally.jenkins.util.script
 
 import akka.Done
-import rally.jenkins.util.{Context, JenkinsClient}
+import akka.http.scaladsl.Http
+import com.typesafe.config.ConfigFactory
+import rally.jenkins.util.{Context, JenkinsClient, JenkinsClientImpl, JenkinsConfig}
 
 import scala.concurrent.Future
 
 class ActiveAndSyncSetup() extends Script with Context {
+
+  val config = ConfigFactory.load
+  val jenkinsConfig = JenkinsConfig(config.getString("url"), config.getString("username"), config.getString("token"))
+
+  val jenkinsClient = new JenkinsClientImpl(jenkinsConfig, Http().singleRequest(_))
 
   override def run: Future[Done] = for {
     createTenant <- jenkinsClient.createTenant("engage", "2 days", "dev")(JenkinsClient.stopOnNonSuccessfulBuild)
