@@ -6,7 +6,9 @@ import spray.json.RootJsonFormat
 
 object ModelJsonImplicits {
 
+  implicit val marathonAppFormat: RootJsonFormat[MarathonApp] = jsonFormat6(MarathonApp)
+  implicit val marathonAppsFormat: RootJsonFormat[MarathonApps] = jsonFormat1(MarathonApps)
   implicit val jobNumberFormat: RootJsonFormat[JobNumber] = jsonFormat1(JobNumber.apply)
-  implicit val rawBuildInfoJson: RootJsonFormat[RawBuildInfo] = jsonFormat6(RawBuildInfo)
+  implicit val rawBuildInfoFormat: RootJsonFormat[RawBuildInfo] = jsonFormat6(RawBuildInfo)
 
 }

@@ -6,6 +6,7 @@ import akka.http.scaladsl.unmarshalling.Unmarshal
 import rally.jenkins.util.model.{BuildInfo, RawBuildInfo}
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import rally.jenkins.util.enum.{BuildAborted, BuildFailure, BuildResult, BuildSuccess, JobName}
+import rally.jenkins.util.exception.TriggerJobException
 import rally.jenkins.util.model.ModelJsonImplicits._
 
 import scala.concurrent.duration._
@@ -79,9 +80,9 @@ class JenkinsClientImpl(
         case StatusCodes.Created =>
           response.headers.find(p => p.name() == "Location") match {
             case Some(header) => header.value
-            case None => throw new Exception("")
+            case None => throw new TriggerJobException(s"Location header not found in ${response.headers}")
           }
-        case _ => throw new Exception("")
+        case s => throw new TriggerJobException(s"No handler for status code $s")
       }
     }
   }
@@ -131,12 +132,12 @@ class JenkinsClientImpl(
               )
             )
             case None =>
-              print(".")
+              defaultLogger.info(s"Attempt $attempts")
               Thread.sleep(timeBetweenAttempts) // sleep for a second
               attempts += 1
           }
         case None =>
-          print(".")
+          defaultLogger.info(s"Attempt $attempts")
           Thread.sleep(timeBetweenAttempts) // sleep for a second
           attempts += 1
       }

@@ -1,5 +1,6 @@
 package rally.jenkins.util.script
 import akka.Done
+import akka.http.scaladsl.Http
 import rally.jenkins.util.Context
 import rally.jenkins.util.marathon.{MarathonClient, MarathonClientImpl}
 import rally.jenkins.util.model.MarathonApp
@@ -8,7 +9,7 @@ import scala.concurrent.Future
 
 class Manifest(tenant: String) extends Script with Context {
 
-  private val marathonClient: MarathonClient = new MarathonClientImpl(tenant)
+  private val marathonClient: MarathonClient = new MarathonClientImpl(tenant, Http().singleRequest(_))
 
   private def appWithoutTenant(id: String): String = id.split("/").tail.tail.mkString("/")
 
