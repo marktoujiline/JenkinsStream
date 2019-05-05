@@ -27,7 +27,9 @@ object Main extends App with Context {
                 manifestInfo.toJson.toString
               )
             )
-            case Failure(ex) => complete(StatusCodes.OK)
+            case Failure(ex) =>
+              println(ex)
+              complete(StatusCodes.OK)
           }
         }
       }

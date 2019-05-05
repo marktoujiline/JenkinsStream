@@ -18,16 +18,6 @@ object ActiveAndSyncSetup extends Context {
   val jenkinsConfig = JenkinsConfig(config.getString("url"), config.getString("username"), config.getString("token"))
   val jenkinsClient = new JenkinsClientImpl(jenkinsConfig, Http().singleRequest(_))
 
-  private def appWithoutTenant(id: String): String = id.split("/").tail.tail.mkString("/")
-  private val lines = io.Source.fromResource("apps.txt").getLines.toList.map(_.replace(".yml", ""))
-  private val missingVersions = Map(
-    "marathon-lb" -> "3.2.0",
-    "core-doppelganger" -> "4.20.23",
-    "core-dreamliner-eligibility-svc" -> "10.8.1",
-    "core-kamaji" -> "2.4.0",
-    "engage-banzai-buddy" -> "1.3.1"
-  )
-
   private def isDependentOn (app: String, otherApp: String): Boolean = {
     (app, otherApp) match {
       case (a, b) if a == b  => false
@@ -77,43 +67,12 @@ object ActiveAndSyncSetup extends Context {
     tsort(toPred, Seq())
   }
 
-  private val toProperAppInfo = (appInfo: AppInfo) => {
-    if (appInfo.app == "marathon-lb-marathon-lb") appInfo.copy(app = "marathon-lb")
-    else {
-      val app :: component :: Nil = appInfo.app
-        .split("-", 2)
-        .toList
-
-      val validApps = lines
-
-      if (validApps.contains(appInfo.app)) appInfo
-      else if (validApps.contains(app)) appInfo.copy(app = app)
-      else if (validApps.contains(component)) appInfo.copy(app = component)
-      else if (validApps.exists(_.contains(appInfo.app))) appInfo.copy(app = validApps.find(_.contains(appInfo.app)).get)
-      else if (validApps.exists(_.contains(component))) appInfo.copy(app = validApps.find(_.contains(component)).get)
-      else if (validApps.exists(_.contains(app))) appInfo.copy(app = validApps.find(_.contains(app)).get)
-      else appInfo.copy(app = "unknown")
-    }
-
-  }
-
-  private val toProperVersion = (appInfo: AppInfo)=> {
-    val badVersion = List("unknown", "latest").contains(appInfo.description)
-    val knownVersion = missingVersions.toList.find(_._1 == appInfo.app)
-    if (badVersion && knownVersion.nonEmpty) appInfo.copy(description = knownVersion.get._2)
-    else if (badVersion) appInfo.copy(description = "FILTER")
-    else appInfo
-  }
-
   def run(tenant: Option[String]): Future[Done] = for {
     createTenant <- if (tenant.isEmpty || tenant.get == "") jenkinsClient.createTenant("engage", "2 days", "dev", "master", "mark.toujiline@rallyhealth.com")(JenkinsClient.stopOnNonSuccessfulBuild) else Future(BuildInfo(CreateTenant, 0, BuildSuccess, tenant.get))
     tenant = if (createTenant.result == BuildSuccess) createTenant.description else throw new Exception("create tenant failed")
     manifestInfo <- new Manifest(tenant).run
   } yield {
     val missingApps = manifestInfo.missingApps
-      .map(a => a.copy(app = appWithoutTenant(a.app).replace("/", "-")))
-      .map(toProperAppInfo andThen toProperVersion)
-      .filter(_.description != "FILTER")
       .toList
 
     val runJob = (appInfo: AppInfo) => jenkinsClient.deployComponent(

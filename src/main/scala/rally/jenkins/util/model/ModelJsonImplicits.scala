@@ -11,6 +11,6 @@ object ModelJsonImplicits {
   implicit val jobNumberFormat: RootJsonFormat[JobNumber] = jsonFormat1(JobNumber.apply)
   implicit val rawBuildInfoFormat: RootJsonFormat[RawBuildInfo] = jsonFormat6(RawBuildInfo)
   implicit val appInfoFormat: RootJsonFormat[AppInfo] = jsonFormat3(AppInfo)
-  implicit val manifestInfoFormat: RootJsonFormat[ManifestInfo] = jsonFormat4(ManifestInfo)
+  implicit val manifestInfoFormat: RootJsonFormat[ManifestInfo] = jsonFormat3(ManifestInfo)
 
 }
