@@ -1,6 +1,5 @@
 package rally.jenkins.util
 
-import akka.Done
 import akka.http.scaladsl.Http
 import script.{ActiveAndSyncSetup, Manifest => Man}
 import akka.http.scaladsl.model._
@@ -35,8 +34,8 @@ object Main extends App with Context {
     } ~
     path("activeAndSync") {
       post {
-        val saved: Future[Done] = new ActiveAndSyncSetup().run
-        onComplete(saved) { _ =>
+        entity(as[Option[String]]) { tenant =>
+          ActiveAndSyncSetup.run(tenant)
           complete(StatusCodes.OK)
         }
       }

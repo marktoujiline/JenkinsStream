@@ -15,7 +15,7 @@ trait JenkinsClient {
     * @param branch neptune-deploy branch to use
     * @return information about how build went. Description field contains tenant-name
     */
-  def createTenant(stacks: String, lifespan: String, environment: String, branch: String = "master")
+  def createTenant(stacks: String, lifespan: String, environment: String, branch: String = "master", email: String = "")
     (implicit handler: BuildInfo => BuildInfo): Future[BuildInfo]
 
   /** https://ci.rally-dev.com/teams-deploys/job/deploys/job/DestroyTenant/job/<branch>/

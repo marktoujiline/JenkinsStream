@@ -23,9 +23,9 @@ class JenkinsClientImpl(
   private val buildInfo = "api/json"
   private val runBuildWithParameters = "buildWithParameters"
 
-  def createTenant(stacks: String, lifespan: String, environment: String, branch: String = "master")
+  def createTenant(stacks: String, lifespan: String, environment: String, branch: String = "master", email: String = "")
     (implicit handler: BuildInfo => BuildInfo): Future[BuildInfo] = {
-    val parameters = buildParams(Map("stacks" -> stacks, "lifespan" -> lifespan, "environment" -> environment))
+    val parameters = buildParams(Map("stacks" -> stacks, "lifespan" -> lifespan, "environment" -> environment, "email" -> email))
     runJob("CreateTenant", branch, parameters) map handler
   }
 
@@ -96,7 +96,7 @@ class JenkinsClientImpl(
 
   private def waitForJobToFinish(jobName: String, queueLink: String, branch: String): Future[BuildInfo] = {
     val maxAttempts = 360
-    val timeBetweenAttempts = 1000
+    val timeBetweenAttempts = 10000
     // extract the number queueId from queueId link
     val splitQueueLink = queueLink.split("/")
     val queueId = splitQueueLink(splitQueueLink.length - 1).toInt

@@ -2,30 +2,145 @@ package rally.jenkins.util.script
 
 import akka.Done
 import akka.http.scaladsl.Http
+import akka.stream.scaladsl.{Sink, Source}
 import com.typesafe.config.ConfigFactory
+import rally.jenkins.util.enum.{BuildSuccess, CreateTenant}
+import rally.jenkins.util.model.{AppInfo, BuildInfo}
 import rally.jenkins.util.{Context, JenkinsClient, JenkinsClientImpl, JenkinsConfig}
 
+import scala.annotation.tailrec
 import scala.concurrent.Future
+import scala.concurrent.duration._
 
-class ActiveAndSyncSetup() extends Script with Context {
+object ActiveAndSyncSetup extends Context {
 
   val config = ConfigFactory.load
   val jenkinsConfig = JenkinsConfig(config.getString("url"), config.getString("username"), config.getString("token"))
-
   val jenkinsClient = new JenkinsClientImpl(jenkinsConfig, Http().singleRequest(_))
 
-  override def run: Future[Done] = for {
-    createTenant <- jenkinsClient.createTenant("engage", "2 days", "dev")(JenkinsClient.stopOnNonSuccessfulBuild)
-    tenant = createTenant.description
-    arcadeStack <- jenkinsClient.deployStack(tenant, "arcade")(JenkinsClient.continueOnNonSuccessfulBuild)
-    engineStack <- jenkinsClient.deployStack(tenant, "engine")(JenkinsClient.continueOnNonSuccessfulBuild)
-    engageStack <- jenkinsClient.deployStack(tenant, "engage")(JenkinsClient.continueOnNonSuccessfulBuild)
-    rewardsDhpUi <- jenkinsClient.deployComponent("rewards-dhp-ui", "8.8.2-2-683689a-SNAPSHOT", tenant)
+  private def appWithoutTenant(id: String): String = id.split("/").tail.tail.mkString("/")
+  private val lines = io.Source.fromResource("apps.txt").getLines.toList.map(_.replace(".yml", ""))
+  private val missingVersions = Map(
+    "marathon-lb" -> "3.2.0",
+    "core-doppelganger" -> "4.20.23",
+    "core-dreamliner-eligibility-svc" -> "10.8.1",
+    "core-kamaji" -> "2.4.0",
+    "engage-banzai-buddy" -> "1.3.1"
+  )
+
+  private def isDependentOn (app: String, otherApp: String): Boolean = {
+    (app, otherApp) match {
+      case (a, b) if a == b  => false
+      case (_, "sec-mates") => true
+      case (a, "marathon-lb") if !List("sec-mates").contains(a) => true
+      case (a, "authn-api") if !List("marathon-lb", "sec-mates").contains(a)=> true
+      case ("engine-base", "sortinghat-web") => true
+      case (a, "engine-base") if a.startsWith("engine-") => true
+      case (_, _) => false
+    }
+  }
+
+  type Edges[T] = Traversable[(T, T)]
+
+  private def buildMatrix(apps: Seq[AppInfo], isDependentOn: (String, String) => Boolean): Edges[AppInfo] = {
+    val allCombos = for (x <- apps; y <- apps) yield (x, y)
+    allCombos.collect{ case combo if isDependentOn(combo._1.app, combo._2.app) => (combo._1, combo._2)}
+  }
+
+  private def topologicalSort(apps: Seq[AppInfo], function: (String, String) => Boolean): Seq[AppInfo] = {
+    val matrix = buildMatrix(apps, function)
+    val sorted = tsort(matrix).toList
+    sorted
+  }
+
+  private def tsort[A](edges: Traversable[(A, A)]): Iterable[A] = {
+    @tailrec
+    def tsort(toPreds: Map[A, Set[A]], done: Iterable[A]): Iterable[A] = {
+      val (noPreds, hasPreds) = toPreds partition {
+        _._2.isEmpty
+      }
+      if (noPreds.isEmpty)
+        if (hasPreds.isEmpty) done else sys.error(hasPreds.toString)
+      else {
+        val found = noPreds.keys
+        tsort(
+          hasPreds.mapValues {
+            _ -- found
+          }, done ++ found
+        )
+      }
+    }
+
+    val toPred = edges.foldLeft(Map[A, Set[A]]()) { (acc, e) =>
+      acc + (e._1 -> acc.getOrElse(e._1, Set())) + (e._2 -> (acc.getOrElse(e._2, Set()) + e._1))
+    }
+    tsort(toPred, Seq())
+  }
+
+  private val toProperAppInfo = (appInfo: AppInfo) => {
+    if (appInfo.app == "marathon-lb-marathon-lb") appInfo.copy(app = "marathon-lb")
+    else {
+      val app :: component :: Nil = appInfo.app
+        .split("-", 2)
+        .toList
+
+      val validApps = lines
+
+      if (validApps.contains(appInfo.app)) appInfo
+      else if (validApps.contains(app)) appInfo.copy(app = app)
+      else if (validApps.contains(component)) appInfo.copy(app = component)
+      else if (validApps.exists(_.contains(appInfo.app))) appInfo.copy(app = validApps.find(_.contains(appInfo.app)).get)
+      else if (validApps.exists(_.contains(component))) appInfo.copy(app = validApps.find(_.contains(component)).get)
+      else if (validApps.exists(_.contains(app))) appInfo.copy(app = validApps.find(_.contains(app)).get)
+      else appInfo.copy(app = "unknown")
+    }
+
+  }
+
+  private val toProperVersion = (appInfo: AppInfo)=> {
+    val badVersion = List("unknown", "latest").contains(appInfo.description)
+    val knownVersion = missingVersions.toList.find(_._1 == appInfo.app)
+    if (badVersion && knownVersion.nonEmpty) appInfo.copy(description = knownVersion.get._2)
+    else if (badVersion) appInfo.copy(description = "FILTER")
+    else appInfo
+  }
+
+  def run(tenant: Option[String]): Future[Done] = for {
+    createTenant <- if (tenant.isEmpty || tenant.get == "") jenkinsClient.createTenant("engage", "2 days", "dev", "master", "mark.toujiline@rallyhealth.com")(JenkinsClient.stopOnNonSuccessfulBuild) else Future(BuildInfo(CreateTenant, 0, BuildSuccess, tenant.get))
+    tenant = if (createTenant.result == BuildSuccess) createTenant.description else throw new Exception("create tenant failed")
+    manifestInfo <- new Manifest(tenant).run
   } yield {
-    println(s"arcadeStack: $arcadeStack")
-    println(s"engineStack: $engineStack")
-    println(s"engageStack: $engageStack")
-    println(s"rewardsDhpUi: $rewardsDhpUi")
+    val missingApps = manifestInfo.missingApps
+      .map(a => a.copy(app = appWithoutTenant(a.app).replace("/", "-")))
+      .map(toProperAppInfo andThen toProperVersion)
+      .filter(_.description != "FILTER")
+      .toList
+
+    val runJob = (appInfo: AppInfo) => jenkinsClient.deployComponent(
+      appInfo.app,
+      appInfo.description,
+      tenant,
+      "active-and-sync"
+    )(JenkinsClient.continueOnNonSuccessfulBuild).map(_ => println(s"Done deploying $appInfo"))
+    val sorted = topologicalSort(
+      missingApps,
+      isDependentOn
+    ).toList.reverse
+
+    val source: List[AppInfo] = sorted ++ missingApps.toSet[AppInfo].filterNot(sorted.toSet[AppInfo]).toList
+    val cost: AppInfo => Int = (o: AppInfo) => if (source.exists(a => isDependentOn(a.app, o.app))) 5 else 1
+
+    Source(source)
+      .throttle(3, 1.minute, cost)
+      .to(Sink.foreachAsync(5)(runJob))
+      .run()
+
     Done.done
   }
+
+  def main(args: Array[String]): Unit = {
+//    run(Some("admiring-hugle"))
+    run(None)
+  }
+
 }

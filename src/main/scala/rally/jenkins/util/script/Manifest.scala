@@ -10,7 +10,6 @@ class Manifest(tenant: String) extends Context {
 
   private val marathonClient: MarathonClient = new MarathonClientImpl(tenant, Http().singleRequest(_))
 
-  private def appWithoutTenant(id: String): String = id.split("/").tail.tail.mkString("/")
 
   private def semver(s: String): Int = {
     if (s == "latest") {
