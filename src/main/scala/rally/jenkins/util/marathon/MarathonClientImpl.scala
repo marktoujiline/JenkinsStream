@@ -19,7 +19,7 @@ class MarathonClientImpl(
 
   def baseUrl: String = s"http://mesos.$tenantParam.rally-dev.com:8080"
 
-  def getEnv(): Future[Seq[MarathonApp]] = {
+  def getEnv: Future[Seq[MarathonApp]] = {
     val url = baseUrl + "/v2/apps"
     val request = HttpRequest(
       method = HttpMethods.GET,
@@ -46,6 +46,24 @@ class MarathonClientImpl(
 
     Unmarshal(fileContents).to[MarathonApps].map(_.apps.sortBy(_.id))
   }
+   def getIntegrationEnv: Future[Seq[MarathonApp]] = {
+     val baseUrl: String = s"http://mesos-dev-marathon.werally.in/v2/apps?id=/integration"
+     val request = HttpRequest(
+       method = HttpMethods.GET,
+       uri = baseUrl
+     )
+
+     (for {
+         response <- sendAndReceive(request)
+         marathonApps <- Unmarshal(response.entity).to[MarathonApps]
+     } yield {
+         marathonApps.apps.sortBy(_.id)
+     }).recover {
+       case ex =>
+         println(ex.getMessage)
+         Seq.empty[MarathonApp]
+     }
+   }
 
   def appWithoutTenant(id: String): String = id.split("/").tail.tail.mkString("/")
 }

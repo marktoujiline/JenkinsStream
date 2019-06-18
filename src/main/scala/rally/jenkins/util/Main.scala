@@ -1,7 +1,7 @@
 package rally.jenkins.util
 
 import akka.http.scaladsl.Http
-import script.{ActiveAndSyncSetup, Manifest => Man}
+import script.{ActiveAndSyncSetup, Demo, Manifest => Man}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import rally.jenkins.util.model.ManifestInfo
@@ -40,6 +40,11 @@ object Main extends App with Context {
           ActiveAndSyncSetup.run(tenant)
           complete(StatusCodes.OK)
         }
+      }
+    } ~
+    path("demo") {
+      get {
+        complete(new Demo().run(Some("eager-autumn")))
       }
     }
 

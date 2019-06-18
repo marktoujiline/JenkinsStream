@@ -8,9 +8,11 @@ trait MarathonClient {
 
   def tenant: String
 
-  def getEnv(): Future[Seq[MarathonApp]]
-
   def updateEnv(appId: String, env: Map[String, String]): Future[MarathonApp]
+
+  def getEnv: Future[Seq[MarathonApp]]
+
+  def getIntegrationEnv: Future[Seq[MarathonApp]]
 
   def properSetup(tenant: String): Future[Seq[MarathonApp]]
 }

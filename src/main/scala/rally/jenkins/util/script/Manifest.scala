@@ -54,7 +54,7 @@ class Manifest(tenant: String) extends Context {
 
   def run: Future[ManifestInfo] = for {
     properSetupRaw <- marathonClient.properSetup(tenant)
-    currentSetupRaw <- marathonClient.getEnv()
+    currentSetupRaw <- marathonClient.getEnv
   } yield {
 
     def toAppInfo(mApp: MarathonApp): AppInfo = toProperVersion(AppInfo(mApp.id, "SUCCESS", mApp.env.getOrElse("VERSION", "unknown")))

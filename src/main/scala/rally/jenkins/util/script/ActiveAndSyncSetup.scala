@@ -14,7 +14,7 @@ import scala.concurrent.duration._
 
 object ActiveAndSyncSetup extends Context {
 
-  val config = ConfigFactory.load
+  private val config = ConfigFactory.load
   val jenkinsConfig = JenkinsConfig(config.getString("url"), config.getString("username"), config.getString("token"))
   val jenkinsClient = new JenkinsClientImpl(jenkinsConfig, Http().singleRequest(_))
 
@@ -96,10 +96,4 @@ object ActiveAndSyncSetup extends Context {
 
     Done.done
   }
-
-  def main(args: Array[String]): Unit = {
-//    run(Some("admiring-hugle"))
-    run(None)
-  }
-
 }
